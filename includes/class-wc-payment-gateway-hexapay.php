@@ -11,11 +11,17 @@
  * @package     WooCommerce/Classes/Payment
  */
 class WC_Gateway_Hexapay extends WC_Payment_Gateway {
+	public $api_key;
+    public $user_id;
+    public $instructions;
+    public $enable_for_methods;
+    public $enable_for_virtual;
 
 	/**
 	 * Constructor for the gateway.
 	 */
 	public function __construct() {
+		
 		// Setup general properties.
 		$this->setup_properties();
 
@@ -33,13 +39,15 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 		$this->enable_for_virtual = $this->get_option( 'enable_for_virtual', 'yes' ) === 'yes';
 
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
-		add_action( 'woocommerce_thankyou_' . $this->id, array( $this, 'thankyou_page' ) );
+		add_action( 'woocommerce_thankyou_' . $this->id, array( $this, 'handle_hexa_redirect' ), 10 );
+		add_action( 'woocommerce_thankyou_' . $this->id, array( $this, 'thankyou_page' ), 20 );
+		
 		add_filter( 'woocommerce_payment_complete_order_status', array( $this, 'change_payment_complete_order_status' ), 10, 3 );
 
 		// Customer Emails.
 		add_action( 'woocommerce_email_before_order_table', array( $this, 'email_instructions' ), 10, 3 );
 
-		add_action( 'template_redirect', array( $this, 'handle_redirect' ), 5 );
+		// add_action( 'wp', array( $this, 'handle_hexa_redirect' ) );
 	}
 
 	/**
@@ -366,7 +374,7 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 				'payment_status' => 'failure',
 				'order_id'       => $order_id,
 			),
-			wc_get_checkout_url()
+			$this->get_return_url( $order )
 		);
 	
 		// Prepare the data to send to your backend
@@ -420,34 +428,35 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 	/**
  * Handle redirect after payment success or failure.
  */
-public function handle_redirect() {
-    // Check if this is a redirect from the payment gateway
+public function handle_hexa_redirect() {
+    error_log('handle_hexa_redirect() triggered.');
+
     if ( isset( $_GET['payment_status'] ) && isset( $_GET['order_id'] ) ) {
-        $order_id = intval( $_GET['order_id'] ); // Get the order ID from the URL
-        $order = wc_get_order( $order_id ); // Retrieve the order object
+        $order_id = intval( $_GET['order_id'] );
+        $order = wc_get_order( $order_id );
 
         if ( ! $order ) {
-            wc_add_notice( __( 'Order not found.', 'hexa-pay-woo' ), 'error' );
+            echo '<p>' . esc_html__( 'Order not found.', 'hexa-pay-woo' ) . '</p>';
             return;
         }
 
-        // Handle success
         if ( $_GET['payment_status'] === 'success' ) {
             if ( $order->get_status() !== 'completed' ) {
-                $order->payment_complete(); // Mark the order as completed
+                $order->payment_complete();
                 $order->add_order_note( __( 'Payment completed via HexaPay.', 'hexa-pay-woo' ) );
-                WC()->cart->empty_cart(); // Clear the cart
+                WC()->cart->empty_cart();
+                echo '<p>' . esc_html__( 'Payment successful. Your order is completed.', 'hexa-pay-woo' ) . '</p>';
             }
-        }
-        // Handle failure
-        elseif ( $_GET['payment_status'] === 'failure' ) {
+        } elseif ( $_GET['payment_status'] === 'failure' ) {
             if ( $order->get_status() !== 'failed' ) {
                 $order->update_status( 'failed', __( 'Payment failed via HexaPay.', 'hexa-pay-woo' ) );
                 $order->add_order_note( __( 'Payment failed via HexaPay.', 'hexa-pay-woo' ) );
+                echo '<p>' . esc_html__( 'Payment failed. Please try again or contact support.', 'hexa-pay-woo' ) . '</p>';
             }
         }
     }
 }
+
 
 	
 
@@ -458,6 +467,8 @@ public function handle_redirect() {
 		if ( $this->instructions ) {
 			echo wp_kses_post( wpautop( wptexturize( $this->instructions ) ) );
 		}
+
+		wc_print_notices();
 	}
 
 	/**
@@ -470,9 +481,9 @@ public function handle_redirect() {
 	 * @return string
 	 */
 	public function change_payment_complete_order_status( $status, $order_id = 0, $order = false ) {
-		if ( $order && 'hexakode' === $order->get_payment_method() ) {
-			$status = 'completed';
-		}
+		// if ( $order && 'Hexakode Payments' === $order->get_payment_method() ) {
+		// 	$status = 'completed';
+		// }
 		return $status;
 	}
 
