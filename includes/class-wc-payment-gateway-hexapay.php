@@ -410,8 +410,8 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 		);
 
 		$request_url = ( 'yes' === $is_test_mode )
-    ? 'http://localhost:5500/api/test/off-site/create-payment'
-    : 'http://localhost:5500/api/prod/off-site/create-payment';
+    ? 'https://api.hexakode-invoicing.com/api/test/off-site/create-payment'
+    : 'https://api.hexakode-invoicing.com/api/prod/off-site/create-payment';
 
 $authorization_key = ( 'yes' === $is_test_mode ) ? $test_api_key : $api_key;
 	
