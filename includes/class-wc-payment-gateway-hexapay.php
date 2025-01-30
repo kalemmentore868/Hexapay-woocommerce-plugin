@@ -16,6 +16,8 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
     public $instructions;
     public $enable_for_methods;
     public $enable_for_virtual;
+	public $test_api_key;
+	public $is_test_mode;
 
 	/**
 	 * Constructor for the gateway.
@@ -33,6 +35,8 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 		$this->title              = $this->get_option( 'title' );
 		$this->description        = $this->get_option( 'description' );
 		$this->api_key        = $this->get_option( 'api_key' );
+		$this->test_api_key        = $this->get_option( 'test_api_key' );
+		$this->is_test_mode       = $this->get_option( 'is_test_mode' );
 		$this->user_id      = $this->get_option( 'user_id' );
 		$this->instructions       = $this->get_option( 'instructions' );
 		$this->enable_for_methods = $this->get_option( 'enable_for_methods', array() );
@@ -59,6 +63,7 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 		$this->method_title       = __( 'Hexakode Payments', 'hexa-pay-woo' );
 		$this->method_description = __( 'Have your customers pay with Hexakode Payments.', 'hexa-pay-woo' );
 		$this->api_key        =  __( 'Add API KEY.', 'hexa-pay-woo' );
+		$this->test_api_key        =  __( 'Add Test API KEY.', 'hexa-pay-woo' );
 		$this->user_id      = __( 'Add User Id.', 'hexa-pay-woo' );
 		$this->has_fields         = false;
 	}
@@ -75,6 +80,13 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 				'description' => '',
 				'default'     => 'no',
 			),
+			'is_test_mode'            => array(
+				'title'       => __( 'Enable Test Mode', 'hexa-pay-woo' ),
+				'label'       => __( 'Enable test mode (uncheck for live)', 'hexa-pay-woo' ),
+				'type'        => 'checkbox',
+				'description' => '',
+				'default'     => 'no',
+			),
 			'title'              => array(
 				'title'       => __( 'Title', 'hexa-pay-woo' ),
 				'type'        => 'text',
@@ -86,6 +98,12 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 				'title'       => __( 'API Key', 'hexa-pay-woo' ),
 				'type'        => 'text',
 				'description' => __( 'Add your api key from the dashboard', 'hexa-pay-woo' ),
+				'desc_tip'    => true,
+			),
+			'test_api_key'              => array(
+				'title'       => __( 'Test API Key', 'hexa-pay-woo' ),
+				'type'        => 'text',
+				'description' => __( 'Add your test api key from the dashboard', 'hexa-pay-woo' ),
 				'desc_tip'    => true,
 			),
 			'user_id'              => array(
@@ -355,6 +373,8 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 
 	private function hexakode_payment_processing( $order ) {
 		$api_key = $this->api_key; // Your API key for authentication
+		$test_api_key = $this->test_api_key;
+		$is_test_mode = $this->get_option( 'is_test_mode' );
 		$user_id = $this->user_id;
 		$order_id = $order->get_id(); // WooCommerce order ID
 		$total_amount = number_format( $order->get_total(), 2, '.', '' ); // Order total
@@ -388,42 +408,56 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 			'fail_url'      => $response_fail_url,
 			'user_id'       => $user_id,
 		);
+
+		$request_url = ( 'yes' === $is_test_mode )
+    ? 'http://localhost:5500/api/test/off-site/create-payment'
+    : 'http://localhost:5500/api/prod/off-site/create-payment';
+
+$authorization_key = ( 'yes' === $is_test_mode ) ? $test_api_key : $api_key;
 	
 		// Send a POST request to the backend
-		$response = wp_remote_post( 'http://localhost:5500/api/test/off-site/create-payment', array(
+		$response = wp_remote_post( $request_url, array(
 			'method'    => 'POST',
 			'timeout'   => 45,
 			'headers'   => array(
 				'Content-Type'  => 'application/json',
-				'Authorization' => 'Bearer ' . $api_key,
+				'Authorization' => 'Bearer ' . $authorization_key
 			),
 			'body'      => wp_json_encode( $payload ),
 		) );
 	
 		if ( is_wp_error( $response ) ) {
 			$error_message = $response->get_error_message();
-
 			wc_add_notice( __( 'Payment error: ', 'hexa-payments-woo' ) . $error_message, 'error' );
-			return;
+			return false;
 		}
 	
 		$response_code = wp_remote_retrieve_response_code( $response );
-    $response_body = wp_remote_retrieve_body( $response );
-
-	if ( $response_code === 200 ) {
-        // Store $response_body for later retrieval.
-        // For example, use a transient or a custom option keyed by order ID.
-        set_transient( 'hexakode_form_' . $order->get_id(), $response_body, 60 * 5 ); // 5 minutes expiration
-
-        // Return a URL to a custom endpoint that will render the form.
-        return add_query_arg( array(
-            'hexakode_order' => $order->get_id(),
-        ), home_url( '/hexakode-render-form/' ) );
-    } else {
-        wc_add_notice( __( 'Payment error: ', 'hexa-payments-woo' ) . $response_body, 'error' );
-        return false;
-    }
-	}
+		$response_body = wp_remote_retrieve_body( $response );
+	
+		// If the request was successful (HTTP 200), parse the JSON response
+		if ( $response_code === 200 ) {
+			$json_data = json_decode( $response_body, true );
+	
+			// Check if our backend responded with { "redirect": "..." }
+			if ( isset( $json_data['redirect'] ) ) {
+				// Return the redirect URL to which we want the user to go
+				return $json_data['redirect'];
+			} else {
+				wc_add_notice(
+					__( 'Payment error: Missing redirect URL in response.', 'hexa-payments-woo' ),
+					'error'
+				);
+				return false;
+			}
+		} else {
+			wc_add_notice(
+				__( 'Payment error: ', 'hexa-payments-woo' ) . $response_body,
+				'error'
+			);
+			return false;
+		}
+}
 
 	/**
  * Handle redirect after payment success or failure.

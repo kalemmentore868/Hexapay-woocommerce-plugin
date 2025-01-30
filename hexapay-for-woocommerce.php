@@ -49,26 +49,26 @@ function hexakode_add_tt_currencies_symbol( $currency_symbol, $currency ) {
 	return $currency_symbol;
 }
 
-add_action( 'init', function() {
-    add_rewrite_rule( '^hexakode-render-form/?$', 'index.php?hexakode_render_form=1', 'top' );
-    add_rewrite_tag( '%hexakode_render_form%', '1' );
-} );
+// add_action( 'init', function() {
+//     add_rewrite_rule( '^hexakode-render-form/?$', 'index.php?hexakode_render_form=1', 'top' );
+//     add_rewrite_tag( '%hexakode_render_form%', '1' );
+// } );
 
-add_action( 'template_redirect', function() {
-    if ( get_query_var( 'hexakode_render_form' ) ) {
-        $order_id = isset($_GET['hexakode_order']) ? absint($_GET['hexakode_order']) : 0;
-        if ( $order_id ) {
-            $form_html = get_transient( 'hexakode_form_' . $order_id );
-            if ( $form_html ) {
-                // Output the stored HTML form.
-                header('Content-Type: text/html');
-                echo $form_html;
-                // Optionally delete the transient if not needed anymore.
-                delete_transient( 'hexakode_form_' . $order_id );
-                exit;
-            }
-        }
-        wp_die('Invalid request.'); // Handle errors gracefully.
-    }
-});
+// add_action( 'template_redirect', function() {
+//     if ( get_query_var( 'hexakode_render_form' ) ) {
+//         $order_id = isset($_GET['hexakode_order']) ? absint($_GET['hexakode_order']) : 0;
+//         if ( $order_id ) {
+//             $form_html = get_transient( 'hexakode_form_' . $order_id );
+//             if ( $form_html ) {
+//                 // Output the stored HTML form.
+//                 header('Content-Type: text/html');
+//                 echo $form_html;
+//                 // Optionally delete the transient if not needed anymore.
+//                 delete_transient( 'hexakode_form_' . $order_id );
+//                 exit;
+//             }
+//         }
+//         wp_die('Invalid request.'); // Handle errors gracefully.
+//     }
+// });
 
