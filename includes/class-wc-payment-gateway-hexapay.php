@@ -18,6 +18,7 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
     public $enable_for_virtual;
 	public $test_api_key;
 	public $is_test_mode;
+	public $id;
 
 	/**
 	 * Constructor for the gateway.
@@ -30,6 +31,8 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 		// Load the settings.
 		$this->init_form_fields();
 		$this->init_settings();
+
+		$this->id = 'hexakode';
 
 		// Get settings.
 		$this->title              = $this->get_option( 'title' );

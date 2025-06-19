@@ -10,6 +10,8 @@
  * License: 0.1.0
  * License URL: http://www.gnu.org/licenses/gpl-2.0.txt
  * text-domain: hexa-pay-woo
+ * WC requires at least: 6.0
+ * WC tested up to: 8.0
 */ 
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -17,6 +19,22 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! in_array( 'woocommerce/woocommerce.php', apply_filters( 'active_plugins', get_option( 'active_plugins' ) ) ) ) return;
+
+add_action('before_woocommerce_init', function() {
+    if ( class_exists('\Automattic\WooCommerce\Utilities\FeaturesUtil') ) {
+        // Enable block checkout + HPOS compatibility
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility(
+            'cart_checkout_blocks',
+            __FILE__,
+            true
+        );
+        \Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility(
+            'custom_order_tables',
+            __FILE__,
+            true
+        );
+    }
+});
 
 add_action( 'plugins_loaded', 'hexpay_payment_init', 11 );
 add_filter( 'woocommerce_currencies', 'hexakode_add_tt_currencies' );
@@ -49,26 +67,16 @@ function hexakode_add_tt_currencies_symbol( $currency_symbol, $currency ) {
 	return $currency_symbol;
 }
 
-// add_action( 'init', function() {
-//     add_rewrite_rule( '^hexakode-render-form/?$', 'index.php?hexakode_render_form=1', 'top' );
-//     add_rewrite_tag( '%hexakode_render_form%', '1' );
-// } );
 
-// add_action( 'template_redirect', function() {
-//     if ( get_query_var( 'hexakode_render_form' ) ) {
-//         $order_id = isset($_GET['hexakode_order']) ? absint($_GET['hexakode_order']) : 0;
-//         if ( $order_id ) {
-//             $form_html = get_transient( 'hexakode_form_' . $order_id );
-//             if ( $form_html ) {
-//                 // Output the stored HTML form.
-//                 header('Content-Type: text/html');
-//                 echo $form_html;
-//                 // Optionally delete the transient if not needed anymore.
-//                 delete_transient( 'hexakode_form_' . $order_id );
-//                 exit;
-//             }
-//         }
-//         wp_die('Invalid request.'); // Handle errors gracefully.
-//     }
-// });
+
+
+
+add_action(
+    'woocommerce_blocks_payment_method_type_registration',
+    function ( \Automattic\WooCommerce\Blocks\Payments\PaymentMethodRegistry $registry ) {
+        require_once __DIR__ . '/includes/class-wc-hexa-blocks.php';
+        $registry->register( new WC_HexaPay_Blocks() );
+    }
+);
+
 
