@@ -14,6 +14,10 @@ final class WC_HexaPay_Blocks extends AbstractPaymentMethodType {
         return true;
     }
 
+    public function needs_shipping_address() {
+        return false;
+    }
+
     public function get_payment_method_script_handles() {
     wp_register_script(
         'wc-hexapay-blocks-integration',
@@ -45,7 +49,7 @@ wp_add_inline_script(
         return [
             'title'       => $settings['title'] ?? 'Hexakode Payments',
             'description' => $settings['description'] ?? '',
-            'supports'    => ['products'],
+            'supports'    => ["products", "subscriptions", "default", "virtual"],
             'ariaLabel'   => $settings['title'] ?? 'Hexakode Payments',
         ];
     }

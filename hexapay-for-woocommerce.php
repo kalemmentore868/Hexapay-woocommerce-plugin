@@ -67,10 +67,7 @@ function hexakode_add_tt_currencies_symbol( $currency_symbol, $currency ) {
 	return $currency_symbol;
 }
 
-
-
-
-
+add_action('woocommerce_blocks_loaded', function () {
 add_action(
     'woocommerce_blocks_payment_method_type_registration',
     function ( \Automattic\WooCommerce\Blocks\Payments\PaymentMethodRegistry $registry ) {
@@ -78,5 +75,20 @@ add_action(
         $registry->register( new WC_HexaPay_Blocks() );
     }
 );
+});
+
+
+add_filter('woocommerce_virtual_and_downloadable_product_payment_gateways', function($gateways) {
+    $gateways[] = 'hexakode';
+    return $gateways;
+});
+
+add_filter('woocommerce_available_payment_gateways', function($gateways) {
+    if (isset($gateways['hexakode'])) {
+        $gateways['hexakode']->supports[] = 'virtual';
+    }
+    return $gateways;
+});
+
 
 
