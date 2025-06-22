@@ -25,7 +25,7 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 	 */
 	public function __construct() {
 
-error_log('[HexaPay] Gateway constructor initialized');
+
 		
 		// Setup general properties.
 		$this->setup_properties();
@@ -306,7 +306,7 @@ error_log('[HexaPay] Gateway constructor initialized');
 	 * @return array
 	 */
 	public function process_payment( $order_id ) {
-		error_log("[HexaPay] Processing payment for order ID: $order_id");
+		
 		$order = wc_get_order( $order_id );
 
 		if ( $order->get_total() > 0 ) {
@@ -344,7 +344,7 @@ error_log('[HexaPay] Gateway constructor initialized');
 		$order_id = $order->get_id(); // WooCommerce order ID
 		$total_amount = number_format( $order->get_total(), 2, '.', '' ); // Order total
 		$currency = $order->get_currency(); // Currency code
-		error_log($currency);
+	
 		if ( $currency !== 'TTD' ) {
 			wc_add_notice(
 				__( 'Unsupported currency for Hexakode Invoicing. Only TTD is allowed.', 'hexa-pay-woo' ),
