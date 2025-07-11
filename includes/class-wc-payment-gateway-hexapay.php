@@ -19,13 +19,12 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 	public $test_api_key;
 	public $is_test_mode;
 	public $id;
+	public $fee_structure;
 
 	/**
 	 * Constructor for the gateway.
 	 */
 	public function __construct() {
-
-
 		
 		// Setup general properties.
 		$this->setup_properties();
@@ -46,7 +45,7 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 		$this->instructions       = $this->get_option( 'instructions' );
 		$this->enable_for_methods = $this->get_option( 'enable_for_methods', array() );
 		$this->enable_for_virtual = $this->get_option( 'enable_for_virtual', 'yes' ) === 'yes';
-		$this->supports = [ 'products', 'subscriptions', 'default', 'virtual' ];
+		$this->fee_structure = $this->get_option( 'fee_structure', 'customer_pays' );
 
 		add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
 		add_action( 'woocommerce_thankyou_' . $this->id, array( $this, 'handle_hexa_redirect' ), 10 );
@@ -118,6 +117,18 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 				'description' => __( 'Add your user_id from the dashboard', 'hexa-pay-woo' ),
 				'desc_tip'    => true,
 			),
+			'fee_structure' => array(
+    'title'       => __( 'Fee Structure', 'hexa-pay-woo' ),
+    'type'        => 'select',
+    'description' => __( 'Choose who pays the transaction fees.', 'hexa-pay-woo' ),
+    'default'     => 'customer_pays',
+    'desc_tip'    => true,
+    'options'     => array(
+        'customer_pays' => __( 'Customer Pays', 'hexa-pay-woo' ),
+        'merchant_pays' => __( 'Merchant Pays', 'hexa-pay-woo' ),
+        'split'         => __( 'Split', 'hexa-pay-woo' ),
+    ),
+),
 			'description'        => array(
 				'title'       => __( 'Description', 'hexa-pay-woo' ),
 				'type'        => 'textarea',
@@ -160,7 +171,52 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 	 * @return bool
 	 */
 	public function is_available() {
-		return true;
+		$order          = null;
+		$needs_shipping = false;
+
+		// Test if shipping is needed first.
+		if ( WC()->cart && WC()->cart->needs_shipping() ) {
+			$needs_shipping = true;
+		} elseif ( is_page( wc_get_page_id( 'checkout' ) ) && 0 < get_query_var( 'order-pay' ) ) {
+			$order_id = absint( get_query_var( 'order-pay' ) );
+			$order    = wc_get_order( $order_id );
+
+			// Test if order needs shipping.
+			if ( 0 < count( $order->get_items() ) ) {
+				foreach ( $order->get_items() as $item ) {
+					$_product = $item->get_product();
+					if ( $_product && $_product->needs_shipping() ) {
+						$needs_shipping = true;
+						break;
+					}
+				}
+			}
+		}
+
+		$needs_shipping = apply_filters( 'woocommerce_cart_needs_shipping', $needs_shipping );
+
+		// Virtual order, with virtual disabled.
+		if ( ! $this->enable_for_virtual && ! $needs_shipping ) {
+			return false;
+		}
+
+		// Only apply if all packages are being shipped via chosen method, or order is virtual.
+		if ( ! empty( $this->enable_for_methods ) && $needs_shipping ) {
+			$order_shipping_items            = is_object( $order ) ? $order->get_shipping_methods() : false;
+			$chosen_shipping_methods_session = WC()->session->get( 'chosen_shipping_methods' );
+
+			if ( $order_shipping_items ) {
+				$canonical_rate_ids = $this->get_canonical_order_shipping_item_rate_ids( $order_shipping_items );
+			} else {
+				$canonical_rate_ids = $this->get_canonical_package_rate_ids( $chosen_shipping_methods_session );
+			}
+
+			if ( ! count( $this->get_matching_rates( $canonical_rate_ids ) ) ) {
+				return false;
+			}
+		}
+
+		return parent::is_available();
 	}
 
 	/**
@@ -306,26 +362,22 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 	 * @return array
 	 */
 	public function process_payment( $order_id ) {
-		
 		$order = wc_get_order( $order_id );
 
 		if ( $order->get_total() > 0 ) {
 			// Retrieve the redirect URL from your processing method
 			$redirect_url = $this->hexakode_payment_processing( $order );
 	
-			if ( is_string( $redirect_url ) ) {
-            return [
-                'result'   => 'success',
-                'redirect' => $redirect_url,
-            ];
-        }
-
-        // ✅ On error, log it and fail gracefully
-        wc_add_notice( __( 'Payment processing failed. Please try again.', 'hexa-pay-woo' ), 'error' );
-        return [
-            'result' => 'failure',
-        ];
-    
+			if ( $redirect_url ) {
+				return array(
+					'result'   => 'success',
+					'redirect' => $redirect_url,
+				);
+			} else {
+				// Handle the case when redirect URL wasn't obtained
+				wc_add_notice( __( 'Payment processing failed. Please try again.', 'hexa-pay-woo' ), 'error' );
+				return;
+			}
 		} else {
 			$order->payment_complete();
 			return array(
@@ -344,18 +396,8 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 		$order_id = $order->get_id(); // WooCommerce order ID
 		$total_amount = number_format( $order->get_total(), 2, '.', '' ); // Order total
 		$currency = $order->get_currency(); // Currency code
-	
-		if ( $currency !== 'TTD' ) {
-			wc_add_notice(
-				__( 'Unsupported currency for Hexakode Invoicing. Only TTD is allowed.', 'hexa-pay-woo' ),
-				'error'
-			);
-			return [
-		'result'  => 'failure',
-		'message' => 'Unsupported currency',
-	];
-		}
 		$customer_email = $order->get_billing_email(); // Customer email
+		$fee_structure = $this->fee_structure;
 		$customer_name = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name(); // Customer name
 		$response_success_url = add_query_arg(
 			array(
@@ -378,6 +420,7 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 			'order_id'      => $order_id,
 			'total_amount'  => $total_amount,
 			'currency'      => $currency,
+			'fee_structure' => $fee_structure,
 			'customer_email'=> $customer_email,
 			'customer_name' => $customer_name,
 			'success_url'   => $response_success_url,
@@ -389,7 +432,7 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
     ? 'https://api.hexakode-invoicing.com/api/test/off-site/create-payment'
     : 'https://api.hexakode-invoicing.com/api/prod/off-site/create-payment';
 
-	$authorization_key = ( 'yes' === $is_test_mode ) ? $test_api_key : $api_key;
+$authorization_key = ( 'yes' === $is_test_mode ) ? $test_api_key : $api_key;
 	
 		// Send a POST request to the backend
 		$response = wp_remote_post( $request_url, array(
@@ -424,20 +467,14 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
 					__( 'Payment error: Missing redirect URL in response.', 'hexa-payments-woo' ),
 					'error'
 				);
-				return [
-	'result'  => 'failure',
-	'message' => 'Payment failed. No redirect returned.',
-];
+				return false;
 			}
 		} else {
 			wc_add_notice(
 				__( 'Payment error: ', 'hexa-payments-woo' ) . $response_body,
 				'error'
 			);
-			return [
-	'result'  => 'failure',
-	'message' => 'Payment failed.',
-];
+			return false;
 		}
 }
 
@@ -445,7 +482,7 @@ class WC_Gateway_Hexapay extends WC_Payment_Gateway {
  * Handle redirect after payment success or failure.
  */
 public function handle_hexa_redirect() {
- 
+    error_log('handle_hexa_redirect() triggered.');
 
     if ( isset( $_GET['payment_status'] ) && isset( $_GET['order_id'] ) ) {
         $order_id = intval( $_GET['order_id'] );
